@@ -1,0 +1,82 @@
+import requests                                                         #importo le librerie necessarie
+import schedule
+import json
+from datetime import datetime
+import time
+
+class Bot ():                                                              #creo classe  con parametri fissi
+    def __init__(self):
+        self.url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest'
+
+        self.params = {'start':'1',
+                       'limit':'20',
+                       'convert':'USD'
+                       }
+
+        self.headers = {'Accepts':'application/json',
+                        'X-CMC_PRO_API_KEY':'24353eba-96ff-442f-9d4e-86f4ae504673'
+                        }
+
+    def api_call(self):                                       #chiamata all api ci CMC che restituisce dict 'data'
+        r = requests.get(url=self.url,params=self.params,headers=self.headers).json() #con le info di tutte le cripto
+        return r['data']
+
+impactBot = Bot()
+
+def logic():                                                #logica del programma
+
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") #nelle prossime 8 righe creo tutte le liste e variabili che ci
+    currencies = impactBot.api_call()                  #serviranno dopo piu la creazione del file json col nome delle
+    max_volume = 0                                      #della data corrente
+    total_cost_top20 = []
+    total_cost_forVolume = []
+    change_24h = []
+    old_value = []
+    file_json = f'{now}.json'
+
+    for currency in currencies:#queste 4 righe trovano il currency con il volume maggiore nelle 24 ore
+        volume = currency ['quote']['USD']['volume_24h']
+        if volume > max_volume:
+            max_volume = volume
+            max_volume_name = currency['name']
+
+        if currency['quote']['USD']['percent_change_24h']: #aggiungiamo la% di cambio della top20 ad una lista ordinata
+            change_24h.append((currency['name'],currency['quote']['USD']['percent_change_24h']))
+            new_change_24h =sorted(change_24h, key= lambda x:x[1],reverse= True)
+
+        price_crypto = currency['quote']['USD']['price']#aggiungiamo il prezzo delle top 20 ad un altra lista
+        total_cost_top20.append (price_crypto)         #(prezzo di singole unita)
+
+        if currency['quote']['USD']['volume_24h']>= 76000000:#cerchiamo le cripto con volume superiore a 76m
+            crypto76v = currency['quote']['USD']['price']   #aggiungiamo il valore di una singola unita di queste cripto
+            total_cost_forVolume.append(crypto76v)         #le aggiungiamo ad una lista e sommiamo
+            total_cost = sum(total_cost_forVolume)
+
+        price_currency = currency['quote']['USD']['price'] #in queste righe cerchiamo la differenza in % se avessimo
+        percent_change = currency['quote']['USD']['percent_change_24h']#acquistato una singola unita delle top 20 cripto
+        difference = (price_currency/100)*percent_change              #il giorno prima
+        price_yesterday = price_currency + difference
+        old_value.append(price_yesterday)
+    total_yesterday = int(sum(old_value))
+    total_today = int(sum(total_cost_top20))
+    difference_price = total_yesterday - total_today
+    percent_request = (difference_price*100)/total_yesterday
+
+    #aggingiamo tutti i dati in un dizionario per poi creare il file json
+    dict_info = {'Diffrenza_prezzo_ieri_oggi': round(percent_request,2),'Cripto_top': new_change_24h[:10],
+                'Cripto_Flop':new_change_24h[10:],'Costo_monete_sopra_76m':int(total_cost),'Costo_singola_unita_top20':
+                int(sum(total_cost_top20)),'Cripto_massimo_volume':(max_volume_name,int(max_volume))}
+
+        #creazione file json
+    with open (file_json,'w') as outfile:
+        json.dump(dict_info,outfile,indent=1)
+
+    return
+
+#usiammo la lbreria schedule per ripetre il programma tutti i giorni alle ore 9:00
+start_time = "9:00"
+schedule.every().day.at(start_time).do(logic)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
